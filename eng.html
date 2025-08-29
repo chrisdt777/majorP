@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' *; media-stream 'self'; connect-src 'self';">
+  <title>Credit Assessment - English</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="intro-screen">
+    <h1>Credit Assessment</h1>
+    <p>Let's get started...</p>
+  </div>
+
+  <div class="main-container">
+    <div class="controls">
+      <button onclick="window.location.href='index.html'">X</button>
+    </div>
+    <h2>Credit Assessment Assistant</h2>
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="visualizer"></canvas>
+
+    <div class="chat-container" id="chatContainer"></div>
+
+    <div class="chat-input" id="chatInputSection">
+      <div class="chat-input-container">
+        <input type="text" id="chatInput" placeholder="Type your response (optional)">
+        <button id="micBtn">🎙️</button>
+        <button id="rehearBtn">🔄</button>
+        <button id="testVoiceBtn" style="background: #ff6b6b; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer;">🧪 Test Voice</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('visualizer');
+    const ctx = canvas.getContext('2d');
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+
+    let analyser, dataArray, audioContext, source;
+    let audioStream, animationId;
+    let recognition;
+    let isSpeaking = false;
+    let lastTranscript = '';
+    let currentQuestionIndex = 0;
+    let responses = [];
+    let isAsking = false;
+    let voiceConfidenceScores = [];
+    let mediaRecorder;
+    let audioChunks = [];
+
+    const questions = [
+      "What is your full name?",
+      "What is your current employment status?",
+      "What is your annual income?",
+      "Do you have any existing loans or debts?",
+      "What is your credit score, if known?",
+      "What is the purpose of the credit you are seeking?",
+      "How much credit are you requesting?",
+      "Do you own or rent your current residence?",
+      "How long have you been at your current job?",
+      "Do you have any additional sources of income?"
+    ];
+
+    if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+      recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+      recognition.lang = 'en-IN';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+    } else {
+      appendMessage("Speech recognition is not supported in this browser. Please use Google Chrome or Edge.", 'error');
+    }
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = () => {};
+    } else {
+      appendMessage("Text-to-speech is not supported in this browser.", 'error');
+    }
+
+    function visualize() {
+      analyser.getByteTimeDomainData(dataArray);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+      gradient.addColorStop(0, '#4a4aff');
+      gradient.addColorStop(1, '#8a8aff');
+      ctx.beginPath();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = gradient;
+
+      let sliceWidth = canvas.width * 1.0 / dataArray.length;
+      let x = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        let v = dataArray[i] / 128.0;
+        let y = v * canvas.height / 2;
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+        x += sliceWidth;
+      }
+      ctx.lineTo(canvas.width, canvas.height / 2);
+      ctx.stroke();
+      animationId = requestAnimationFrame(visualize);
+    }
+
+    async function speakQuestion(text) {
+      return new Promise((resolve) => {
+        isAsking = true;
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'en-IN';
+        const voices = window.speechSynthesis.getVoices();
+        utterance.voice = voices.find(voice => voice.lang === 'en-IN') || voices[0];
+        utterance.rate = 1.0;
+        utterance.onend = () => {
+          console.log("Speech ended, waiting before accepting input...");
+          setTimeout(() => {
+            isAsking = false;
+            console.log("Now accepting input");
+            resolve();
+          }, 500);
+        };
+        window.speechSynthesis.speak(utterance);
+      });
+    }
+
+    function startListening() {
+      navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+        .then(stream => {
+          audioStream = stream;
+          document.getElementById('video').srcObject = stream;
+
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          analyser = audioContext.createAnalyser();
+          analyser.fftSize = 2048;
+          dataArray = new Uint8Array(analyser.fftSize);
+
+          source = audioContext.createMediaStreamSource(stream);
+          source.connect(analyser);
+          visualize();
+
+          if (recognition) {
+            recognition.start();
+            console.log("Speech recognition started...");
+            isSpeaking = true;
+          }
+        })
+        .catch(err => {
+          console.error("Error accessing media devices:", err);
+          if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+            appendMessage("Permission to access the microphone or camera was denied. Please allow access in your browser settings and try again.", 'error');
+          } else {
+            appendMessage("An error occurred while trying to access the microphone or camera: " + err.message, 'error');
+          }
+        });
+    }
+
+    function stopListening() {
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+      }
+      if (recognition) {
+        recognition.stop();
+        console.log("Speech recognition stopped...");
+        isSpeaking = false;
+      }
+      cancelAnimationFrame(animationId);
+    }
+
+    async function calculateCreditScore(responses, voiceConfidenceScores) {
+      try {
+        // Calculate base score
+        let score = 0;
+        responses.forEach((response, index) => {
+          response = response.toLowerCase();
+          switch (index) {
+            case 0: // Full name
+              score += response.length > 5 ? 10 : 5;
+              break;
+            case 1: // Employment status
+              score += response.includes('employed') || response.includes('self-employed') ? 10 : 5;
+              break;
+            case 2: // Annual income
+              const income = parseFloat(response.replace(/[^0-9.]/g, ''));
+              score += income > 0 ? Math.min(10, income / 10000) : 0;
+              break;
+            case 3: // Existing loans or debts
+              score += response.includes('no') ? 10 : 5;
+              break;
+            case 4: // Credit score
+              const creditScore = parseInt(response);
+              score += creditScore > 300 ? Math.min(10, (creditScore - 300) / 50) : 0;
+              break;
+            case 5: // Purpose of credit
+              score += response.length > 10 ? 10 : 5;
+              break;
+            case 6: // Credit amount requested
+              const amount = parseFloat(response.replace(/[^0-9.]/g, ''));
+              score += amount > 0 ? Math.min(10, amount / 10000) : 0;
+              break;
+            case 7: // Own or rent residence
+              score += response.includes('own ') ? 10 : 5;
+              break;
+            case 8: // Duration at current job
+              const duration = parseInt(response);
+              score += duration > 0 ? Math.min(10, duration / 2) : 0;
+              break;
+            case 9: // Additional income
+              score += response.includes('yes') ? 10 : 5;
+              break;
+          }
+        });
+
+        // Calculate average voice confidence
+        const avgVoiceConfidence = voiceConfidenceScores.length > 0 
+          ? voiceConfidenceScores.reduce((a, b) => a + b, 0) / voiceConfidenceScores.length 
+          : 0.5;
+
+        // Apply voice confidence multiplier
+        const voiceMultiplier = 0.8 + (avgVoiceConfidence * 0.4); // Range: 0.8 to 1.2
+        const finalScore = Math.min(100, Math.max(0, Math.round(score * voiceMultiplier)));
+
+        return {
+          baseScore: score,
+          voiceConfidence: avgVoiceConfidence,
+          voiceMultiplier: voiceMultiplier,
+          finalScore: finalScore
+        };
+      } catch (error) {
+        console.error('Error calculating credit score:', error);
+        return {
+          baseScore: 0,
+          voiceConfidence: 0.5,
+          voiceMultiplier: 1.0,
+          finalScore: 0
+        };
+      }
+    }
+
+    async function askNextQuestion() {
+      if (currentQuestionIndex < questions.length) {
+        const question = `Question ${currentQuestionIndex + 1}: ${questions[currentQuestionIndex]}`;
+        appendMessage(question, 'bot');
+        
+        if (recognition && isSpeaking) {
+          recognition.stop();
+        }
+        
+        await speakQuestion(questions[currentQuestionIndex]);
+        
+        if (recognition && isSpeaking) {
+          recognition.start();
+        }
+      } else {
+        appendMessage("Thank you for completing the assessment. Your responses have been recorded.", 'bot');
+        stopListening();
+        const scoreResult = await calculateCreditScore(responses, voiceConfidenceScores);
+        console.log("Responses:", responses, "Voice Confidence:", voiceConfidenceScores, "Score Result:", scoreResult);
+        
+        // Add View Results button
+        const chatInputSection = document.getElementById('chatInputSection');
+        chatInputSection.innerHTML = '<button id="viewResultsBtn" class="action-btn">View Results</button>';
+        document.getElementById('viewResultsBtn').addEventListener('click', () => {
+          // Store responses and score in sessionStorage
+          sessionStorage.setItem('assessmentResponses', JSON.stringify(responses));
+          sessionStorage.setItem('voiceConfidenceScores', JSON.stringify(voiceConfidenceScores));
+          sessionStorage.setItem('creditScore', scoreResult.finalScore);
+          sessionStorage.setItem('baseScore', scoreResult.baseScore);
+          sessionStorage.setItem('voiceConfidence', scoreResult.voiceConfidence);
+          sessionStorage.setItem('voiceMultiplier', scoreResult.voiceMultiplier);
+          window.location.href = 'results.html';
+        });
+      }
+    }
+
+    if (recognition) {
+      recognition.onresult = function(event) {
+        if (isAsking) {
+          console.log("Question is being asked, ignoring speech input");
+          return;
+        }
+        
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        if (finalTranscript && lastTranscript !== finalTranscript) {
+          appendMessage(finalTranscript, 'user');
+          responses[currentQuestionIndex] = finalTranscript;
+          lastTranscript = finalTranscript;
+          currentQuestionIndex++;
+          lastTranscript = '';
+          setTimeout(askNextQuestion, 1000);
+        }
+      };
+
+      recognition.onerror = function(event) {
+        console.error("Speech recognition error:", event.error);
+        appendMessage("Speech recognition error: " + event.error, 'error');
+        isSpeaking = false;
+      };
+
+      recognition.onend = function() {
+        console.log("Speech recognition ended.");
+        if (isSpeaking && currentQuestionIndex < questions.length && !isAsking) {
+          setTimeout(() => {
+            recognition.start();
+          }, 500);
+        }
+      };
+    }
+
+    function appendMessage(text, sender) {
+      const msg = document.createElement('div');
+      msg.classList.add('chat-message', sender + '-message');
+      msg.innerText = text;
+      chatContainer.appendChild(msg);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    function handleTextInput() {
+      const input = document.getElementById('chatInput').value.trim();
+      if (!input || currentQuestionIndex >= questions.length) return;
+      appendMessage(input, 'user');
+      responses[currentQuestionIndex] = input;
+      currentQuestionIndex++;
+      document.getElementById('chatInput').value = '';
+      lastTranscript = '';
+      setTimeout(askNextQuestion, 1000);
+    }
+
+    function rehearQuestion() {
+      if (currentQuestionIndex < questions.length) {
+        const question = `Question ${currentQuestionIndex + 1}: ${questions[currentQuestionIndex]}`;
+        appendMessage("Repeating: " + question, 'bot');
+        speakQuestion(questions[currentQuestionIndex]);
+      }
+    }
+
+    // Voice recording and ML analysis functions
+    async function startVoiceRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        
+        mediaRecorder.ondataavailable = (event) => {
+          audioChunks.push(event.data);
+        };
+        
+        mediaRecorder.start();
+        console.log('Voice recording started');
+        return true;
+      } catch (error) {
+        console.error('Error starting voice recording:', error);
+        appendMessage('Error starting voice recording. Please check microphone permissions.', 'error');
+        return false;
+      }
+    }
+
+    async function stopVoiceRecording() {
+      return new Promise((resolve) => {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            const confidenceScore = await analyzeVoiceTone(audioBlob);
+            voiceConfidenceScores.push(confidenceScore);
+            console.log(`Voice confidence score: ${confidenceScore}`);
+            resolve(confidenceScore);
+          };
+          mediaRecorder.stop();
+          mediaRecorder.stream.getTracks().forEach(track => track.stop());
+          console.log('Voice recording stopped');
+        } else {
+          resolve(0.5); // Default confidence if recording failed
+        }
+      });
+    }
+
+    async function analyzeVoiceTone(audioBlob) {
+      try {
+        // Convert audio blob to base64
+        const reader = new FileReader();
+        
+        return new Promise((resolve) => {
+          reader.onload = async () => {
+            try {
+              const base64Audio = reader.result;
+              
+              // Send to ML API for analysis
+              const response = await fetch('/api/analyze-voice', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  audio_data: base64Audio,
+                  audio_format: 'wav'
+                })
+              });
+              
+              if (response.ok) {
+                const result = await response.json();
+                const confidenceScore = result.confidence_score;
+                
+                // Display confidence score
+                appendMessage(`Voice Confidence: ${(confidenceScore * 100).toFixed(1)}%`, 'system');
+                
+                console.log('Voice analysis result:', result);
+                resolve(confidenceScore);
+              } else {
+                console.error('Voice analysis failed:', response.statusText);
+                appendMessage('Voice analysis failed, using default confidence', 'system');
+                resolve(0.5); // Default confidence score
+              }
+            } catch (error) {
+              console.error('Error in voice analysis:', error);
+              resolve(0.5); // Default confidence score
+            }
+          };
+          
+          reader.onerror = () => {
+            console.error('Error reading audio file');
+            resolve(0.5); // Default confidence score
+          };
+          
+          reader.readAsDataURL(audioBlob);
+        });
+        
+      } catch (error) {
+        console.error('Error analyzing voice tone:', error);
+        return 0.5; // Default confidence score
+      }
+    }
+
+    // Enhanced speech recognition with voice recording
+    if (recognition) {
+      recognition.onresult = async function(event) {
+        if (isAsking) {
+          console.log("Question is being asked, ignoring speech input");
+          return;
+        }
+        
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        if (finalTranscript && lastTranscript !== finalTranscript) {
+          appendMessage(finalTranscript, 'user');
+          responses[currentQuestionIndex] = finalTranscript;
+          lastTranscript = finalTranscript;
+          
+          // Start voice recording for ML analysis
+          const recordingStarted = await startVoiceRecording();
+          
+          if (recordingStarted) {
+            // Wait for voice analysis to complete, then move to next question
+            setTimeout(async () => {
+              const confidenceScore = await stopVoiceRecording();
+              console.log(`Question ${currentQuestionIndex + 1} voice confidence: ${confidenceScore}`);
+              
+              // Wait a bit more for analysis to complete
+              setTimeout(() => {
+                currentQuestionIndex++;
+                lastTranscript = '';
+                setTimeout(askNextQuestion, 1000);
+              }, 1000);
+            }, 2000);
+          } else {
+            // If recording failed, use default confidence and continue
+            voiceConfidenceScores.push(0.5);
+            currentQuestionIndex++;
+            lastTranscript = '';
+            setTimeout(askNextQuestion, 1000);
+          }
+        }
+      };
+
+      recognition.onerror = function(event) {
+        console.error("Speech recognition error:", event.error);
+        appendMessage("Speech recognition error: " + event.error, 'error');
+        isSpeaking = false;
+      };
+
+      recognition.onend = function() {
+        console.log("Speech recognition ended.");
+        if (isSpeaking && currentQuestionIndex < questions.length && !isAsking) {
+          setTimeout(() => {
+            recognition.start();
+          }, 500);
+        }
+      };
+    }
+
+    const micBtn = document.getElementById('micBtn');
+    const rehearBtn = document.getElementById('rehearBtn');
+    const chatContainer = document.getElementById('chatContainer');
+    const chatInput = document.getElementById('chatInput');
+
+    micBtn.addEventListener('click', () => {
+      if (!audioStream) {
+        startListening();
+        setTimeout(askNextQuestion, 500);
+      } else {
+        stopListening();
+      }
+    });
+
+    rehearBtn.addEventListener('click', rehearQuestion);
+    
+    // Test voice analysis button
+    const testVoiceBtn = document.getElementById('testVoiceBtn');
+    testVoiceBtn.addEventListener('click', async () => {
+      appendMessage('🧪 Testing voice analysis...', 'system');
+      const recordingStarted = await startVoiceRecording();
+      if (recordingStarted) {
+        setTimeout(async () => {
+          const confidenceScore = await stopVoiceRecording();
+          appendMessage(`🧪 Test Result: Voice Confidence ${(confidenceScore * 100).toFixed(1)}%`, 'system');
+          console.log('Test voice analysis result:', confidenceScore);
+        }, 3000);
+      } else {
+        appendMessage('🧪 Test failed: Could not start recording', 'system');
+      }
+    });
+
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        handleTextInput();
+      }
+    });
+
+    function navigateToVerification() {
+      window.location.href = 'verify.html';
+    }
+
+    function navigateToResults() {
+      window.location.href = 'results.html';
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      const verifyBtn = document.getElementById('verifyBtn');
+      const resultsBtn = document.getElementById('resultsBtn');
+      
+      if (verifyBtn) {
+        verifyBtn.addEventListener('click', navigateToVerification);
+      }
+      
+      if (resultsBtn) {
+        resultsBtn.addEventListener('click', navigateToResults);
+      }
+    });
+
+    // Check for Aadhaar verification on page load
+    window.addEventListener('load', () => {
+      if (sessionStorage.getItem('aadhaarVerified') !== 'true') {
+        // If not verified, redirect to verification page
+        window.location.href = 'verify.html';
+      } else {
+        // Test voice analysis API connection
+        testVoiceAnalysisAPI();
+      }
+    });
+    
+    // Test function to verify voice analysis API is working
+    async function testVoiceAnalysisAPI() {
+      try {
+        const response = await fetch('/api/health');
+        if (response.ok) {
+          const health = await response.json();
+          console.log('✅ Voice Analysis API is healthy:', health);
+          appendMessage('Voice Analysis API: Connected ✅', 'system');
+        } else {
+          console.log('❌ Voice Analysis API health check failed');
+          appendMessage('Voice Analysis API: Connection Failed ❌', 'system');
+        }
+      } catch (error) {
+        console.error('❌ Voice Analysis API connection error:', error);
+        appendMessage('Voice Analysis API: Connection Error ❌', 'system');
+      }
+    }
+
+    let synth = window.speechSynthesis;
+  </script>
+</body>
+</html>

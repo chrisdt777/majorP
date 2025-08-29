@@ -1,0 +1,184 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  }
+  body {
+    background-color: #0a0a2a;
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  .intro-screen {
+    position: fixed;
+    width: 100%;
+    height: 100vh;
+    background: linear-gradient(to bottom, #0a0a2a, #111);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    z-index: 10;
+    animation: fadeOut 3s ease 2s forwards;
+  }
+  @keyframes fadeOut {
+    to { opacity: 0; visibility: hidden; }
+  }
+  .intro-screen h1 {
+    font-size: 3rem;
+    color: #8a8aff;
+  }
+  .intro-screen p {
+    margin-top: 1rem;
+    font-size: 1.2rem;
+    color: #aaa;
+  }
+  .main-container {
+    opacity: 0;
+    animation: fadeIn 1s ease 3s forwards;
+    width: 500px;
+    background: #f5f6fa;
+    border-radius: 15px;
+    padding: 20px;
+    text-align: center;
+    border: 5px solid transparent;
+    background-clip: padding-box;
+    position: relative;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    height: 600px;
+  }
+  .main-container::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    right: -5px;
+    bottom: -5px;
+    background: linear-gradient(45deg, #4a4aff, #8a8aff);
+    border-radius: 20px;
+    z-index: -1;
+  }
+  @keyframes fadeIn {
+    to { opacity: 1; }
+  }
+  video {
+    width: 100%;
+    height: 150px;
+    border-radius: 10px;
+    margin: 0.5rem 0;
+    background: #000;
+  }
+  canvas {
+    width: 100%;
+    height: 60px;
+    margin: 0.5rem 0;
+  }
+  .controls {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+  }
+  .controls button {
+    background: none;
+    color: #aaa;
+    font-size: 1rem;
+    padding: 5px;
+    cursor: pointer;
+  }
+  .controls button:hover {
+    color: #666;
+  }
+  .chat-input {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: auto;
+    padding: 10px 0;
+  }
+  .chat-input-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: white;
+    border-radius: 25px;
+    padding: 5px 10px;
+    width: 90%;
+  }
+  button#micBtn, button#rehearBtn, button#viewResultsBtn {
+    padding: 12px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    background: linear-gradient(45deg, #4a4aff, #8a8aff);
+    color: white;
+    font-weight: bold;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-left: 5px;
+  }
+  button#micBtn:hover, button#rehearBtn:hover, button#viewResultsBtn:hover {
+    background: linear-gradient(45deg, #6a6aff, #aaaaff);
+  }
+  button#viewResultsBtn {
+    width: auto;
+    padding: 10px 20px;
+    border-radius: 25px;
+  }
+  .chat-container {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 10px;
+    padding: 10px;
+    margin: 0.5rem 0;
+    height: 120px;
+    overflow-y: auto;
+    text-align: left;
+    flex-grow: 1;
+  }
+  .chat-message {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: 15px;
+    max-width: 80%;
+    word-wrap: break-word;
+    color: #333;
+  }
+  .bot-message {
+    background-color: #e0e0ff;
+    text-align: left;
+  }
+  .user-message {
+    background-color: #d1e7ff;
+    align-self: flex-end;
+    margin-left: auto;
+    text-align: right;
+  }
+  .error-message {
+    color: #ff4444;
+    font-style: italic;
+  }
+  input[type="text"] {
+    padding: 10px 15px;
+    border-radius: 20px;
+    border: none;
+    flex: 1;
+    font-size: 1rem;
+    background: transparent;
+  }
+  h2 {
+    font-size: 1.5rem;
+    color: #333;
+    margin-bottom: 0.5rem;
+  }
+  
